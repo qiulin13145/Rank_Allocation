@@ -31,6 +31,18 @@ from para_eff_pt.peft_pretraining.dataloader_v2 import PreprocessedIterableDatas
 from para_eff_pt.peft_pretraining.modeling_llama import LlamaForCausalLM
 
 from para_eff_pt.pt_restart_lora import *
+from para_eff_pt.pt_rank_allocation_lora import (
+    allocate_rank_budget,
+    apply_rank_allocation,
+    compute_rank_scores,
+    disable_rank_probes,
+    enable_rank_probes,
+    list_rank_allocation_lora_modules,
+    snapshot_credit_state,
+    summarize_rank_allocation,
+    update_credit_stats,
+    update_probe_stats,
+)
 from para_eff_pt.pt_restart_sltrain_svd import *
 from para_eff_pt.pt_sltrain import *
 from para_eff_pt.pt_low_rank.low_rank_model import *
@@ -528,6 +540,8 @@ def main(args):
     if layer_wise_flag:
         if not isinstance(optimizer, dict):
             raise ValueError("Layer-wise optimizer is not properly constructed.")
+    if args.peft_model.lower() == "rank_allocation_lora" and layer_wise_flag:
+        raise ValueError("rank_allocation_lora does not support per-layer optimizers in this first version.")
 
     if not layer_wise_flag:
         scheduler = training_utils.get_scheculer(
@@ -688,6 +702,16 @@ def main(args):
             broadcast_buffers=False,
             find_unused_parameters=True,    
         )
+
+    is_rank_allocation_lora = args.peft_model.lower() == "rank_allocation_lora"
+    rank_allocation_modules = []
+    if is_rank_allocation_lora:
+        rank_allocation_modules = list_rank_allocation_lora_modules(model)
+        if global_rank == 0:
+            logger.info(
+                f"RankAllocationLoRA modules: {len(rank_allocation_modules)}, "
+                f"initial total rank: {sum(m.rank for m in rank_allocation_modules)}"
+            )
 
     # global steps and others are defined above
     pad_idx = tokenizer.pad_token_id
@@ -852,12 +876,28 @@ def main(args):
         if global_rank == 0:
             pbar.update(1)
 
+        rank_allocation_sample_credit = False
+        if (
+            is_rank_allocation_lora
+            and args.rank_allocation_credit_sample_interval > 0
+            and update_step % args.rank_allocation_credit_sample_interval == 0
+        ):
+            rank_allocation_modules = list_rank_allocation_lora_modules(model)
+            snapshot_credit_state(rank_allocation_modules)
+            rank_allocation_sample_credit = True
+
         if not layer_wise_flag:
             
             if "apollo" in args.optimizer.lower():
                 _ , gradnorms = optimizer.step()
             else:
                 optimizer.step()
+
+            if rank_allocation_sample_credit:
+                update_credit_stats(
+                    rank_allocation_modules,
+                    beta=args.rank_allocation_credit_beta,
+                )
             
             scheduler.step()
             optimizer.zero_grad()
@@ -939,6 +979,115 @@ def main(args):
                 f"Eval loss and perplexity at step {update_step}: {total_loss}, {np.exp(total_loss)}"
             )
             
+        if update_step % args.cycle_length == 0 and is_rank_allocation_lora:
+            logger.info(f"\nRankAllocationLoRA restart at update step {update_step}")
+
+            underlying_model = model.module if hasattr(model, "module") else model
+            rank_allocation_modules = list_rank_allocation_lora_modules(underlying_model)
+            if not rank_allocation_modules:
+                logger.warning("No RankAllocationLoRaLinear modules found at restart.")
+            else:
+                restart_lr = optimizer.param_groups[0]["lr"]
+                restart_loss = loss.item()
+
+                optimizer.zero_grad()
+                underlying_model.zero_grad(set_to_none=True)
+
+                enable_rank_probes(
+                    rank_allocation_modules,
+                    probe_rank=args.rank_allocation_probe_rank,
+                    sigma=args.rank_allocation_probe_sigma,
+                )
+                probe_loss = underlying_model(**batch, labels=labels).loss
+                probe_loss.backward()
+                update_probe_stats(
+                    rank_allocation_modules,
+                    beta=args.rank_allocation_probe_beta,
+                    distributed=not args.single_gpu,
+                )
+                disable_rank_probes(rank_allocation_modules)
+                underlying_model.zero_grad(set_to_none=True)
+
+                compute_rank_scores(rank_allocation_modules)
+                allocation_result = allocate_rank_budget(
+                    rank_allocation_modules,
+                    delta_rank=args.rank_allocation_delta,
+                    top_k=args.rank_allocation_top_k,
+                    min_ratio=args.rank_allocation_min_ratio,
+                    max_ratio=args.rank_allocation_max_ratio,
+                    hysteresis=args.rank_allocation_hysteresis,
+                )
+                apply_rank_allocation(allocation_result)
+
+                if dist.is_available() and dist.is_initialized():
+                    dist.barrier()
+
+                summary = summarize_rank_allocation(
+                    rank_allocation_modules,
+                    allocation_result,
+                    step=update_step,
+                    loss_value=restart_loss,
+                    lr=restart_lr,
+                )
+
+                if global_rank == 0:
+                    for line in summary["lines"]:
+                        logger.info(line)
+                    wandb_payload = dict(summary["metrics"])
+                    wandb_payload["rank_allocation/module_table"] = wandb.Table(
+                        columns=[
+                            "bucket",
+                            "module",
+                            "old_rank",
+                            "new_rank",
+                            "score",
+                            "credit_eff",
+                            "probe",
+                            "energy",
+                        ],
+                        data=summary["table_rows"],
+                    )
+                    wandb_payload["rank_allocation/move_table"] = wandb.Table(
+                        columns=[
+                            "remove_module",
+                            "remove_old_rank",
+                            "remove_new_rank",
+                            "add_module",
+                            "add_old_rank",
+                            "add_new_rank",
+                            "delta_rank",
+                        ],
+                        data=summary["changed_rows"],
+                    )
+                    wandb.log(wandb_payload, step=global_step)
+
+                if not args.single_gpu:
+                    del model
+                    model = torch.nn.parallel.DistributedDataParallel(
+                        underlying_model,
+                        device_ids=[local_rank],
+                        output_device=local_rank,
+                        broadcast_buffers=False,
+                        find_unused_parameters=True,
+                    )
+                else:
+                    model = underlying_model
+
+                trainable_params = [p for p in model.parameters() if p.requires_grad]
+                optimizer = build_optimizer(model, trainable_params, args)
+                for param_group in optimizer.param_groups:
+                    param_group["initial_lr"] = args.lr
+                scheduler = training_utils.get_scheculer(
+                    optimizer=optimizer,
+                    scheduler_type="cosine_quick_recovery",
+                    num_training_steps=args.num_training_steps,
+                    warmup_steps=args.warmup_steps,
+                    min_lr_ratio=args.min_lr_ratio,
+                    cycle_length=args.cycle_length,
+                    last_epoch=update_step,
+                    recovery_steps=args.recovery_steps,
+                )
+                rank_allocation_modules = list_rank_allocation_lora_modules(model)
             
         if update_step % args.cycle_length == 0 and (args.peft_model.lower() == 'restart_lora') :
             logger.info(f"\nReinitialize B,A at update step {update_step}")

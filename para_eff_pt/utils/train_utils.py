@@ -13,6 +13,7 @@ from para_eff_pt.pt_fourier import FourierModel
 from para_eff_pt.pt_fourier import Fourier_Lowrank_Model
 from para_eff_pt.pt_restart_sltrain_svd import SpLoRaModel_SVD
 from para_eff_pt.pt_restart_lora import Restart_LoRaModel
+from para_eff_pt.pt_rank_allocation_lora import RankAllocationLoRaModel
 from para_eff_pt.pt_flora import Flora
 from para_eff_pt.pt_golore import GoLoreAdamW,GoLoreAdamW8bit,GoLoreSGD
 from para_eff_pt.pt_golore import GoloreReLoRaModel,GoloreReLoRaLinear
@@ -112,6 +113,15 @@ def build_model(model, args):
     
     elif args.peft_model.lower() == "restart_lora":
         model = Restart_LoRaModel(
+            model,
+            r=args.rank,
+            lora_alpha=args.lora_alpha,
+            lora_dropout=args.lora_dropout,
+            target_modules=args.target_modules,
+            trainable_scaling=args.train_scaling,
+        )
+    elif args.peft_model.lower() == "rank_allocation_lora":
+        model = RankAllocationLoRaModel(
             model,
             r=args.rank,
             lora_alpha=args.lora_alpha,

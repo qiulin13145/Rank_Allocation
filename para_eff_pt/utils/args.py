@@ -164,6 +164,7 @@ def parse_args(args):
             "galore",
             "fourier_low_rank",
             "restart_lora",
+            "rank_allocation_lora",
             "restart_sltrain",
             "flora",
             "golore",
@@ -240,6 +241,18 @@ def parse_args(args):
     ## restart parameters
     parser.add_argument("--restart_every", type=int, default=11000)   
     parser.add_argument("--gradient_control", default=False)
+
+    ## rank allocation lora parameters
+    parser.add_argument("--rank_allocation_delta", type=int, default=8)
+    parser.add_argument("--rank_allocation_top_k", type=int, default=4)
+    parser.add_argument("--rank_allocation_min_ratio", type=float, default=0.125)
+    parser.add_argument("--rank_allocation_max_ratio", type=float, default=0.5)
+    parser.add_argument("--rank_allocation_hysteresis", type=float, default=0.1)
+    parser.add_argument("--rank_allocation_probe_rank", type=int, default=1)
+    parser.add_argument("--rank_allocation_probe_sigma", type=float, default=1e-3)
+    parser.add_argument("--rank_allocation_credit_sample_interval", type=int, default=20)
+    parser.add_argument("--rank_allocation_credit_beta", type=float, default=0.95)
+    parser.add_argument("--rank_allocation_probe_beta", type=float, default=0.9)
     
     ## golore parameters
     parser.add_argument("--rand_ratio", type=float, default=-1.0)
