@@ -1,0 +1,40 @@
+program: torchrun_main2_sweep.py
+name: 1B_SWAN_ADAM_V1
+method: grid
+metric:
+  name: loss
+  goal: minimize
+parameters:
+  lr:
+    values: [0.001, 0.003, 0.0005, 0.005]
+
+
+command:
+  - torchrun
+  - --standalone
+  - --nproc_per_node=4
+  - ${program}
+  - "--wandb_project_name=$project"
+  - "--no_slice"
+  - "--keep_only_last_model"
+  - "--swan_only_mpl_att"
+  - "--swan_version=v1"
+  - "--model_name=swan_adam_v1"
+  - "--model_config=configs/llama_1b.json"
+  - "--peft_model=full-rank"
+  - "--optimizer=swan"
+  - "--momentum=0.9"
+  - "--adam_beta_1=0.9"
+  - "--adam_beta_2=0.999"
+  - "--batch_size=128"
+  - "--total_batch_size=512" 
+  - "--num_training_steps=100000"
+  - "--warmup_steps=10000"
+  - "--eval_every=1000"
+  - "--dtype=bfloat16"
+  - "--cycle_length=100000"
+  - "--scheduler=cosine"
+  - "--save_every=10000"
+  - "--dataset_path=/code/hongpaul-sandbox/parameter_efficient_pretraining/c4/en"
+
+ 

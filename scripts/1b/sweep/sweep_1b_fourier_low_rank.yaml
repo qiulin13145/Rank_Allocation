@@ -1,0 +1,34 @@
+program: torchrun_main_fsdp.py
+method: grid
+metric:
+  name: loss
+  goal: minimize
+parameters:
+  lr:
+    values: [0.0005, 0.001, 0.003, 0.005]
+  rank:
+    values: [256]
+  lora_alpha:
+    values: [32]
+  n_freq:
+    values: [5000, 10000]
+  fourier_scale:
+    values: [16, 32, 64, 128]
+
+
+command:
+  - torchrun
+  - --standalone 
+  - --nproc_per_node=4
+  - ${program}
+  - "--wandb_project_name=sweep-fourier-low-rank-1b"
+  - "--model_name=fourier_low_rank"
+  - "--model_config=configs/llama_1b.json"
+  - "--peft_model=fourier_low_rank"
+  - "--optimizer=adamw"
+  - "--batch_size=32"
+  - "--total_batch_size=512" 
+  - "--num_training_steps=11000"
+  - "--warmup_steps=1"
+  - "--eval_every=1100"
+  - "--dtype=bfloat16"

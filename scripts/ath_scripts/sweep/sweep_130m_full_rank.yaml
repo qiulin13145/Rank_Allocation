@@ -1,0 +1,28 @@
+program: torchrun_main2_sweep.py
+name: 130M_Full-Rank
+method: grid
+metric:
+  name: loss
+  goal: minimize
+parameters:
+  lr:
+    values: [0.001, 0.003, 0.005, 0.01]
+
+
+command:
+  - torchrun
+  - --standalone
+  - --nproc_per_node=4
+  - ${program}
+  - "--wandb_project_name=$project"
+  - "--model_name=full-rank"
+  - "--model_config=configs/llama_130m.json"
+  - "--peft_model=full-rank"
+  - "--optimizer=adamw"
+  - "--batch_size=128"
+  - "--total_batch_size=512" 
+  - "--num_training_steps=20000"
+  - "--warmup_steps=2000"
+  - "--eval_every=1000"
+  - "--dtype=bfloat16"
+  - "--cycle_length=20000"

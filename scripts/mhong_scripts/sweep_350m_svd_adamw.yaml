@@ -1,0 +1,32 @@
+program: torchrun_main2_sweep.py
+name: 350M_SVD_AdamW
+method: grid
+metric:
+  name: loss
+  goal: minimize
+parameters:
+  lr:
+    values: [0.001, 0.0005, 0.0001, 0.003, 0.005, 0.01]
+
+
+command:
+  - torchrun
+  - --standalone
+  - --nproc_per_node=4
+  - ${program}
+  - "--wandb_project_name=$project"
+  - "--model_name=svd-adamw"
+  - "--muon_on=svd_adamw"
+  - "--model_config=configs/llama_350m.json"
+  - "--peft_model=full-rank"
+  - "--optimizer=moonlight_muon"
+  - "--batch_size=128"
+  - "--total_batch_size=512" 
+  - "--num_training_steps=60000"
+  - "--warmup_steps=6000"
+  - "--eval_every=1000"
+  - "--dtype=bfloat16"
+  - "--cycle_length=60000"
+  - "--scheduler=cosine"
+  - "--save_every=99999"
+  - "--dataset_path=/code/hongpaul-sandbox/parameter_efficient_pretraining/c4/en"

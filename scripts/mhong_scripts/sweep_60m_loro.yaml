@@ -1,0 +1,40 @@
+program: torchrun_main2_sweep.py
+name: Sweep_60M_LORO
+method: grid
+metric:
+  name: loss
+  goal: minimize
+parameters:
+  lr:
+    values: [0.0005, 0.001, 0.002, 0.003, 0.005, 0.01, 0.02, 0.04]
+  rank:
+    values: [32, 64, 128, 256]
+  cycle_length:
+    values: [200,500,1000]
+  
+
+
+command:
+  - torchrun
+  - --standalone 
+  - --nproc_per_node=1
+  - ${program}
+  - "--wandb_project_name=$project"
+  - "--model_name=restart_lora"
+  - "--model_config=configs/llama_60m.json"
+  - "--peft_model=low-rank"
+  - "--optimizer=loro_optimizer"
+  - "--batch_size=256"
+  - "--total_batch_size=512" 
+  - "--num_training_steps=11000"
+  - "--lora_alpha=16"
+  - "--warmup_steps=1100"
+  - "--eval_every=1000"
+  - "--dtype=bfloat16"
+  - "--save_every=99999"
+  - "--restart_every=99999"
+  - "--restart_warmup_steps=10"
+  - "--scheduler=cosine_quick_recovery"
+  - "--seed=42"
+  - "--dataset_path=/home/mhong/shared/glent007/c4/en"
+ 

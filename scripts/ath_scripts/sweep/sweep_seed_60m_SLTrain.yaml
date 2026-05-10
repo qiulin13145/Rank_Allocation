@@ -1,0 +1,39 @@
+program: torchrun_main_DDP_sweep.py
+name: seed_sltrain
+method: grid
+metric:
+  name: loss
+  goal: minimize
+parameters:
+  lr:
+    values: [0.01]
+  rank:
+    values: [128]
+  lora_alpha:
+    values: [16]
+  sp_ratio:
+    values: [0.1]
+  seed:
+    values: [42, 43, 44, 45, 46, 47, 48, 49, 50, 51]
+  
+
+command:
+  - torchrun
+  - --standalone 
+  - --nproc_per_node=1
+  - ${program}
+  - "--wandb_project_name=$project"
+  - "--model_name=SLTrain"
+  - "--model_config=configs/llama_60m.json"
+  - "--peft_model=sltrain"
+  - "--optimizer=adamw"
+  - "--batch_size=256"
+  - "--total_batch_size=512" 
+  - "--num_training_steps=11000"
+  - "--warmup_steps=1100"
+  - "--eval_every=1000"
+  - "--dtype=bfloat16"
+  - "--save_every=99999"
+  - "--cycle_length=11000"
+  - "--scheduler=cosine"
+  - "--sweep_seed"

@@ -1,0 +1,37 @@
+program: torchrun_main2_sweep.py
+name: 350M_Muon_SLTrain
+method: grid
+metric:
+  name: loss
+  goal: minimize
+parameters:
+  lr:
+    values: [0.003, 0.005, 0.01, 0.02]
+  rank:
+    values: [256]
+  lora_alpha:
+    values: [16, 32]
+  sp_ratio:
+    values: [0.1]
+  
+
+command:
+  - torchrun
+  - --standalone 
+  - --nproc_per_node=4
+  - ${program}
+  - "--wandb_project_name=$project"
+  - "--model_name=muon-SLTrain"
+  - "--model_config=configs/llama_350m.json"
+  - "--peft_model=sltrain"
+  - "--optimizer=moonlight_muon"
+  - "--batch_size=128"
+  - "--total_batch_size=512"
+  - "--num_training_steps=60000"
+  - "--warmup_steps=6000"
+  - "--eval_every=1000"
+  - "--dtype=bfloat16"
+  - "--save_every=99999"
+  - "--scheduler=cosine"
+  - "--cycle_length=60000"
+  - "--dataset_path=/code/hongpaul-sandbox/parameter_efficient_pretraining/c4/en"

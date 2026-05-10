@@ -1,0 +1,41 @@
+program: torchrun_main2_sweep.py
+name: 350M_Fira
+method: grid
+metric:
+  name: loss
+  goal: minimize
+parameters:
+  lr:
+    values: [0.01, 0.02, 0.005, 0.003, 0.001]
+  rank:
+    values: [256, 128, 64]
+  update_proj_gap:
+    values: [200]
+  
+
+
+command:
+  - torchrun
+  - --standalone
+  - --nproc_per_node=4
+  - ${program}
+  - "--wandb_project_name=$project"
+  - "--model_name=fira"
+  - "--model_config=configs/llama_350m.json"
+  - "--peft_model=fira"
+  - "--optimizer=fira_adamw"
+  - "--batch_size=128"
+  - "--total_batch_size=512" 
+  - "--num_training_steps=60000"
+  - "--warmup_steps=6000"
+  - "--eval_every=1000"
+  - "--dtype=bfloat16"
+  - "--cycle_length=60000"
+  - "--scheduler=cosine"
+  - "--seed=42"
+  - "--weight_decay=0"
+  - "--save_every=60000"
+  - "--galore_scale=0.25"
+  - "--dataset_path=/code/hongpaul-sandbox/parameter_efficient_pretraining/c4/en"
+
+ 

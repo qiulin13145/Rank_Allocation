@@ -1,0 +1,35 @@
+program: torchrun_main2_sweep.py
+name: 350M_Low-Rank_2
+method: grid
+metric:
+  name: loss
+  goal: minimize
+parameters:
+  lr:
+    values: [ 0.003, 0.002, 0.004, 0.0015,  0.0035 ]
+  rank:
+    values: [256, 128, 64]
+  lora_alpha:
+    values: [16]
+  
+
+
+command:
+  - torchrun
+  - --standalone 
+  - --nproc_per_node=4
+  - ${program}
+  - "--wandb_project_name=$project"
+  - "--model_name=low-rank"
+  - "--model_config=configs/llama_350m.json"
+  - "--peft_model=low-rank"
+  - "--optimizer=adamw"
+  - "--batch_size=128"
+  - "--total_batch_size=512" 
+  - "--num_training_steps=60000"
+  - "--warmup_steps=6000"
+  - "--eval_every=1000"
+  - "--dtype=bfloat16"
+  - "--cycle_length=60000"
+  - "--scheduler=cosine"
+  - "--dataset_path=/code/hongpaul-sandbox/parameter_efficient_pretraining/c4/en"

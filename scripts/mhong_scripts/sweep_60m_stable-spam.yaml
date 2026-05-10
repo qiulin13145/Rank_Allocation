@@ -1,0 +1,41 @@
+program: torchrun_main2_sweep.py
+name: Sweep_60M_Stable-SPAM
+method: grid
+metric:
+  name: loss
+  goal: minimize
+parameters:
+  lr:
+    values: [0.001, 0.003, 0.005, 0.01, 0.02, 0.04]
+
+
+command:
+  - torchrun
+  - --standalone
+  - --nproc_per_node=1
+  - ${program}
+  - "--wandb_project_name=$project"
+  - "--model_name=full-rank_spam"
+  - "--model_config=configs/llama_60m.json"
+  - "--peft_model=full-rank"
+  - "--optimizer=stable_spam_adamw"
+  - "--batch_size=256"
+  - "--total_batch_size=512"
+  - "--num_training_steps=11000"
+  - "--lora_alpha=16"
+  - "--warmup_steps=1100"
+  - "--eval_every=1000"
+  - "--dtype=bfloat16"
+  - "--save_every=99999"
+  - "--restart_every=99999"
+  - "--scheduler=cosine"
+  - "--seed=42"
+  - "--cycle_length=11000"
+  - "--update_gap=1000"
+  - "--gamma1=0.85"
+  - "--gamma2=0.99999"
+  - "--gamma3=0.999"
+  - "--density=1.0"
+  - "--total_T=11000"
+  - "--eta=0.5"
+  - "--dataset_path=/code/hongpaul-sandbox/parameter_efficient_pretraining/c4/en"

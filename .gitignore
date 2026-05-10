@@ -1,0 +1,8 @@
+wandb/
+*.egg-info/
+__pycache__/
+*.py[cod]
+log/
+checkpoints/
+build/
+.vscode

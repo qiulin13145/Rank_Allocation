@@ -1,0 +1,33 @@
+program: torchrun_main_fsdp.py
+method: grid
+metric:
+  name: loss
+  goal: minimize
+parameters:
+  lr:
+    values: [0.0005, 0.001, 0.003, 0.005]
+  rank:
+    values: [128, 256]
+  lora_alpha:
+    values: [32, 64]
+  sp_ratio:
+    values: [0.03, 0.05, 0.1]
+  
+
+
+command:
+  - torchrun
+  - --standalone
+  - --nproc_per_node=4
+  - ${program}
+  - "--wandb_project_name=$project"
+  - "--model_name=sltrain"
+  - "--model_config=configs/llama_1b.json"
+  - "--peft_model=sltrain"
+  - "--optimizer=adamw"
+  - "--batch_size=8"
+  - "--total_batch_size=512" 
+  - "--num_training_steps=11000"
+  - "--warmup_steps=1"
+  - "--eval_every=1100"
+  - "--dtype=bfloat16"

@@ -1,0 +1,43 @@
+program: torchrun_main2_sweep.py
+name: 350M_SLTrain-Restarts_plus_FIRA
+method: grid
+metric:
+  name: loss
+  goal: minimize
+parameters:
+  lr:
+    values: [0.005, 0.01, 0.02, 0.03, 0.003, 0.001, 0.0005]
+  rank:
+    values: [256]
+  cycle_length:
+    values: [200]
+  lora_alpha:
+    values: [16]
+  sp_ratio:
+    values: [0.1]
+
+
+command:
+  - torchrun
+  - --standalone
+  - --nproc_per_node=4
+  - ${program}
+  - "--wandb_project_name=$project"
+  - "--model_name=sltrain-restart_plus_fira"
+  - "--model_config=configs/llama_350m.json"
+  - "--peft_model=sltrain"
+  - "--optimizer=fira_adamw"
+  - "--batch_size=128"
+  - "--total_batch_size=512"
+  - "--num_training_steps=60000"
+  - "--warmup_steps=6000"
+  - "--eval_every=1000"
+  - "--dtype=bfloat16"
+  - "--scheduler=cosine_quick_recovery"
+  - "--seed=42"
+  - "--weight_decay=0"
+  - "--save_every=60000"
+  - "--update_proj_gap=200"
+  - "--lora_alpha=16"
+  - "--galore_scale=1.0"
+  - "--dataset_path=/code/hongpaul-sandbox/parameter_efficient_pretraining/c4/en"
