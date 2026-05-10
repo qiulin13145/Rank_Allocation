@@ -12,14 +12,14 @@
 python -m wandb login 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
 export WANDB_PROJECT="rank_allocation_lora"
 
-torchrun --standalone --nproc_per_node 1 torchrun_main_DDP.py \
+torchrun --standalone --nproc_per_node 8 torchrun_main_DDP.py \
     --model_name rank_allocation_lora_60m_42_0.003_500 \
     --model_config configs/llama_60m.json \
     --lr 0.003 \
     --peft_model rank_allocation_lora \
     --optimizer adamW \
     --rank 128 \
-    --batch_size 128 \
+    --batch_size 64 \
     --total_batch_size 512 \
     --num_training_steps 11000 \
     --warmup_steps 1100 \
