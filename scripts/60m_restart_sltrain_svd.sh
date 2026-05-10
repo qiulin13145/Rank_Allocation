@@ -9,22 +9,19 @@
 
 #source ./env_setup.sh
 
-export https_proxy=http://127.0.0.1:7890 http_proxy=http://127.0.0.1:7890 all_proxy=socks5://127.0.0.1:7890
 
-python -m wandb login 585b4959ccb98b1ea4d6466883052012b2c9cca8
-# export WANDB_PROJECT="seed52"
-# export WANDB_PROJECT="draft"
-# export WANDB_PROJECT="splora_SVD_restart"
-export WANDB_PROJECT="1229_restart"
+python -m wandb login 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
+export WANDB_PROJECT="rank_allocation_lora"
+
 
 # LLaMA-60M, GaLore-Adam, 1 A100, 1 Node
-torchrun --standalone --nproc_per_node 4 torchrun_main_DDP.py \
-    --model_name 残差-restart-5.5K \
+torchrun --standalone --nproc_per_node 8 torchrun_main_DDP.py \
+    --model_name restart \
     --model_config configs/llama_60m.json \
-    --lr 0.002 \
+    --lr 0.003 \
     --peft_model restart \
     --optimizer adamw \
-    --rank 64 \
+    --rank 128 \
     --sp_ratio 0.03 \
     --batch_size 128 \
     --total_batch_size 512 \

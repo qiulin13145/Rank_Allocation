@@ -34,15 +34,15 @@ export WANDB_PROJECT="SLTrain_Restarts"
 
 
 # LLaMA-60M, GaLore-Adam, 1 A100, 1 Node
-torchrun --standalone --nproc_per_node 1 torchrun_main_DDP.py \
+torchrun --standalone --nproc_per_node 8 torchrun_main_DDP.py \
     --model_name restart_67_0.005_500 \
     --model_config configs/llama_60m.json \
-    --lr 0.005 \
+    --lr 0.003 \
     --peft_model sltrain \
     --optimizer adamW \
     --rank 128 \
     --sp_ratio 0.1 \
-    --batch_size 256 \
+    --batch_size 64 \
     --total_batch_size 512 \
     --num_training_steps 11000 \
     --warmup_steps 1100 \

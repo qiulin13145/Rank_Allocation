@@ -7,15 +7,15 @@
 #$ -m e
 #$ -M andi.han@riken.jp
 
-export https_proxy=http://127.0.0.1:7890 http_proxy=http://127.0.0.1:7890 all_proxy=socks5://127.0.0.1:7890
+# export https_proxy=http://127.0.0.1:7890 http_proxy=http://127.0.0.1:7890 all_proxy=socks5://127.0.0.1:7890
 
-python -m wandb login 585b4959ccb98b1ea4d6466883052012b2c9cca8
+python -m wandb login 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
 export WANDB_PROJECT="rank_allocation_lora"
 
 torchrun --standalone --nproc_per_node 1 torchrun_main_DDP.py \
-    --model_name rank_allocation_lora_60m_42_0.004_500 \
+    --model_name rank_allocation_lora_60m_42_0.003_500 \
     --model_config configs/llama_60m.json \
-    --lr 0.004 \
+    --lr 0.003 \
     --peft_model rank_allocation_lora \
     --optimizer adamW \
     --rank 128 \
@@ -27,7 +27,7 @@ torchrun --standalone --nproc_per_node 1 torchrun_main_DDP.py \
     --eval_every 1000 \
     --lora_alpha 32 \
     --save_every 50000 \
-    --weight_decay 0.01 \
+    --weight_decay 0.0 \
     --cycle_length 500 \
     --scheduler cosine_quick_recovery \
     --restart_warmup_steps 10 \
@@ -41,4 +41,5 @@ torchrun --standalone --nproc_per_node 1 torchrun_main_DDP.py \
     --rank_allocation_credit_sample_interval 20 \
     --rank_allocation_credit_beta 0.95 \
     --rank_allocation_probe_beta 0.9 \
+    --dataset_path /data/datasets/c4/en \
     --seed 42

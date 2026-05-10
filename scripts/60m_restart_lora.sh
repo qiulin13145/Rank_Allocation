@@ -9,24 +9,19 @@
 
 #source ./env_setup.sh
 
-export https_proxy=http://127.0.0.1:7890 http_proxy=http://127.0.0.1:7890 all_proxy=socks5://127.0.0.1:7890
 
-python -m wandb login 585b4959ccb98b1ea4d6466883052012b2c9cca8
-# export WANDB_PROJECT="seed52"
-# export WANDB_PROJECT="draft"
-# export WANDB_PROJECT="splora_SVD_restart"
-export WANDB_PROJECT="stablize_SLTrain"
+python -m wandb login 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
+export WANDB_PROJECT="rank_allocation_lora"
 
 # LLaMA-60M, GaLore-Adam, 1 A100, 1 Node
-torchrun --standalone --nproc_per_node 1 torchrun_main_DDP.py \
-    --model_name restart_lora_42_0.004_500 \
+torchrun --standalone --nproc_per_node 8 torchrun_main_DDP.py \
+    --model_name restart_lora_42_0.003_500 \
     --model_config configs/llama_60m.json \
-    --lr 0.004 \
+    --lr 0.003 \
     --peft_model restart_lora \
     --optimizer adamW \
     --rank 128 \
-    --sp_ratio 0.03 \
-    --batch_size 128 \
+    --batch_size 64 \
     --total_batch_size 512 \
     --num_training_steps 11000 \
     --warmup_steps 1100 \
@@ -34,10 +29,11 @@ torchrun --standalone --nproc_per_node 1 torchrun_main_DDP.py \
     --eval_every 1000 \
     --lora_alpha 32 \
     --save_every 50000 \
-    --weight_decay 0.01 \
+    --weight_decay 0.0 \
     --cycle_length 500 \
     --scheduler cosine_quick_recovery\
     --restart_warmup_steps 10 \
+    --dataset_path /data/datasets/c4/en \
     --seed 42  \
      
  
