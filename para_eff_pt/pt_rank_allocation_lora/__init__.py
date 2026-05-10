@@ -2,3 +2,4 @@
 # coding=utf-8
 
 from para_eff_pt.pt_rank_allocation_lora.rank_allocation_lora import *
+from para_eff_pt.pt_rank_allocation_lora.reporting import *

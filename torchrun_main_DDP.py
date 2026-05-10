@@ -34,6 +34,7 @@ from para_eff_pt.pt_restart_lora import *
 from para_eff_pt.pt_rank_allocation_lora import (
     allocate_rank_budget,
     apply_rank_allocation,
+    build_rank_allocation_event,
     compute_rank_scores,
     disable_rank_probes,
     enable_rank_probes,
@@ -42,6 +43,7 @@ from para_eff_pt.pt_rank_allocation_lora import (
     summarize_rank_allocation,
     update_credit_stats,
     update_probe_stats,
+    write_rank_allocation_html_report,
 )
 from para_eff_pt.pt_restart_sltrain_svd import *
 from para_eff_pt.pt_sltrain import *
@@ -705,6 +707,7 @@ def main(args):
 
     is_rank_allocation_lora = args.peft_model.lower() == "rank_allocation_lora"
     rank_allocation_modules = []
+    rank_allocation_report_events = []
     if is_rank_allocation_lora:
         rank_allocation_modules = list_rank_allocation_lora_modules(model)
         if global_rank == 0:
@@ -1038,6 +1041,16 @@ def main(args):
                 )
 
                 if global_rank == 0:
+                    rank_allocation_report_events.append(
+                        build_rank_allocation_event(
+                            rank_allocation_modules,
+                            allocation_result,
+                            summary,
+                            step=update_step,
+                            loss_value=restart_loss,
+                            lr=restart_lr,
+                        )
+                    )
                     for line in summary["lines"]:
                         logger.info(line)
                     wandb_payload = dict(summary["metrics"])
@@ -1372,6 +1385,18 @@ def main(args):
         logger.info(
             f"Eval loss and perplexity at step {update_step}: {total_loss}, {np.exp(total_loss)}"
         )
+        if is_rank_allocation_lora and not args.disable_rank_allocation_report:
+            final_modules = list_rank_allocation_lora_modules(model)
+            report_path = write_rank_allocation_html_report(
+                events=rank_allocation_report_events,
+                modules=final_modules,
+                args=args,
+                final_eval_loss=total_loss,
+                final_eval_ppl=np.exp(total_loss),
+            )
+            logger.info(f"RankAllocationLoRA HTML report written to {report_path}")
+            wandb.log({"rank_allocation/report_path": report_path}, step=global_step)
+            wandb.save(os.path.abspath(report_path), policy="now")
 
     logger.info("Script finished successfully")
     print(f"Rank {global_rank} finished successfully")
