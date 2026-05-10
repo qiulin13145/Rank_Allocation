@@ -164,6 +164,7 @@ class RankAllocationLoRaLinear(nn.Module):
         self.r = r
         self.initial_rank = r
         self.lora_alpha = lora_alpha
+        self.base_scaling = self.lora_alpha / self.initial_rank
         self.lora_dropout = nn.Dropout(p=lora_dropout)
         self.trainable_scaling = trainable_scaling
         self.device = device
@@ -194,7 +195,7 @@ class RankAllocationLoRaLinear(nn.Module):
                 requires_grad=True,
             )
         else:
-            self.scaling = self.lora_alpha / self.rank
+            self.scaling = self.base_scaling
 
         self.credit_ema = 0.0
         self.energy_ema = 0.0
@@ -334,7 +335,9 @@ class RankAllocationLoRaLinear(nn.Module):
 
         new_B = U_r * sqrt_S.unsqueeze(0)
         new_A_effective = sqrt_S.unsqueeze(1) * Vh_r
-        new_scale = scale_value if self.trainable_scaling else self.lora_alpha / rank
+        new_scale = self.base_scaling
+        if self.trainable_scaling:
+            new_scale = scale_value
         new_A = new_A_effective / new_scale
 
         self.rank = rank
@@ -342,7 +345,7 @@ class RankAllocationLoRaLinear(nn.Module):
         self.lora_A = nn.Parameter(new_A.to(device=old_device, dtype=old_dtype))
         self.lora_B = nn.Parameter(new_B.to(device=old_device, dtype=old_dtype))
         if not self.trainable_scaling:
-            self.scaling = self.lora_alpha / self.rank
+            self.scaling = self.base_scaling
         self._credit_snapshot = None
 
 

@@ -34,6 +34,13 @@ class RankAllocationLoRaSmokeTest(unittest.TestCase):
         self.assertIn("allocate_rank_budget", function_names)
         self.assertIn("summarize_rank_allocation", function_names)
 
+    def test_rank_allocation_lora_uses_fixed_base_scaling_after_rank_changes(self):
+        source = MODULE_PATH.read_text()
+
+        self.assertIn("self.base_scaling", source)
+        self.assertIn("new_scale = self.base_scaling", source)
+        self.assertNotIn("self.lora_alpha / rank", source)
+
     @unittest.skipIf(torch is None, "torch is not installed in this Python environment")
     def test_probe_branch_is_zero_output_initially(self):
         module = load_rank_allocation_module()
