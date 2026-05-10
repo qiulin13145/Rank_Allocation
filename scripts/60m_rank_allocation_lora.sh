@@ -41,6 +41,6 @@ torchrun --standalone --nproc_per_node 8 torchrun_main_DDP.py \
     --rank_allocation_credit_sample_interval 20 \
     --rank_allocation_credit_beta 0.95 \
     --rank_allocation_probe_beta 0.9 \
-    --rank_allocation_start_step 11000 \
+    --rank_allocation_start_step 1100 \
     --dataset_path /data/datasets/c4/en \
     --seed 42
