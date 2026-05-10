@@ -220,8 +220,8 @@ class RankAllocationLoRaLinear(nn.Module):
         return torch.tensor(scale, device=self.lora_A.device, dtype=self.lora_A.dtype)
 
     def forward(self, x):
-        hidden = F.linear(self.lora_dropout(x), self.lora_A * self._post_lora_scale())
-        out = F.linear(hidden, self.lora_B, self.bias)
+        W = torch.matmul(self.lora_B, self.lora_A * self._post_lora_scale())
+        out = F.linear(x, W, None if self.bias is None else self.bias)
 
         if self.probe_enabled:
             probe_hidden = F.linear(x, self.A_probe)
@@ -318,14 +318,7 @@ class RankAllocationLoRaLinear(nn.Module):
 
         old_dtype = self.lora_A.dtype
         old_device = self.lora_A.device
-        scale = self._scale_value().float()
-        scale_value = float(scale.item()) if scale.numel() == 1 else float(scale.mean().item())
-        if abs(scale_value) < 1e-12:
-            scale_value = 1.0
-
-        W = self.lora_B.detach().float().mm(
-            (self.lora_A.detach().float() * scale_value)
-        )
+        W = self.lora_B.detach().float().mm(self.lora_A.detach().float())
         U, S, Vh = torch.linalg.svd(W, full_matrices=False)
         rank = min(new_rank, U.shape[1], Vh.shape[0])
         U_r = U[:, :rank]
@@ -334,11 +327,7 @@ class RankAllocationLoRaLinear(nn.Module):
         sqrt_S = torch.sqrt(S_r.clamp_min(0.0))
 
         new_B = U_r * sqrt_S.unsqueeze(0)
-        new_A_effective = sqrt_S.unsqueeze(1) * Vh_r
-        new_scale = self.base_scaling
-        if self.trainable_scaling:
-            new_scale = scale_value
-        new_A = new_A_effective / new_scale
+        new_A = sqrt_S.unsqueeze(1) * Vh_r
 
         self.rank = rank
         self.r = rank

@@ -38,8 +38,15 @@ class RankAllocationLoRaSmokeTest(unittest.TestCase):
         source = MODULE_PATH.read_text()
 
         self.assertIn("self.base_scaling", source)
-        self.assertIn("new_scale = self.base_scaling", source)
+        self.assertIn("self.scaling = self.base_scaling", source)
         self.assertNotIn("self.lora_alpha / rank", source)
+
+    def test_rank_allocation_lora_forward_matches_restart_lora_materialized_weight_path(self):
+        source = MODULE_PATH.read_text()
+
+        self.assertIn("W = torch.matmul(self.lora_B, self.lora_A * self._post_lora_scale())", source)
+        self.assertIn("out = F.linear(x, W, None if self.bias is None else self.bias)", source)
+        self.assertNotIn("hidden = F.linear(self.lora_dropout(x), self.lora_A * self._post_lora_scale())", source)
 
     @unittest.skipIf(torch is None, "torch is not installed in this Python environment")
     def test_probe_branch_is_zero_output_initially(self):

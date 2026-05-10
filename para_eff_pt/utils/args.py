@@ -253,6 +253,7 @@ def parse_args(args):
     parser.add_argument("--rank_allocation_credit_sample_interval", type=int, default=20)
     parser.add_argument("--rank_allocation_credit_beta", type=float, default=0.95)
     parser.add_argument("--rank_allocation_probe_beta", type=float, default=0.9)
+    parser.add_argument("--rank_allocation_start_step", type=int, default=0)
     
     ## golore parameters
     parser.add_argument("--rand_ratio", type=float, default=-1.0)

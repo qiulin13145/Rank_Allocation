@@ -1009,14 +1009,21 @@ def main(args):
                 underlying_model.zero_grad(set_to_none=True)
 
                 compute_rank_scores(rank_allocation_modules)
-                allocation_result = allocate_rank_budget(
-                    rank_allocation_modules,
-                    delta_rank=args.rank_allocation_delta,
-                    top_k=args.rank_allocation_top_k,
-                    min_ratio=args.rank_allocation_min_ratio,
-                    max_ratio=args.rank_allocation_max_ratio,
-                    hysteresis=args.rank_allocation_hysteresis,
-                )
+                if update_step >= args.rank_allocation_start_step:
+                    allocation_result = allocate_rank_budget(
+                        rank_allocation_modules,
+                        delta_rank=args.rank_allocation_delta,
+                        top_k=args.rank_allocation_top_k,
+                        min_ratio=args.rank_allocation_min_ratio,
+                        max_ratio=args.rank_allocation_max_ratio,
+                        hysteresis=args.rank_allocation_hysteresis,
+                    )
+                else:
+                    allocation_result = allocate_rank_budget(
+                        rank_allocation_modules,
+                        delta_rank=args.rank_allocation_delta,
+                        top_k=0,
+                    )
                 apply_rank_allocation(allocation_result)
 
                 if dist.is_available() and dist.is_initialized():
