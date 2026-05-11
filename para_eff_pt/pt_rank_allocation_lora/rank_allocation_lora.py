@@ -216,6 +216,9 @@ class RankAllocationLoRaLinear(nn.Module):
         self.last_probe = 0.0
         self._credit_snapshot = None
         self.probe_enabled = False
+        self.last_A_probe = None
+        self.add_score = 0.0
+        self.remove_score = 0.0
 
     def _post_lora_scale(self):
         if self.trainable_scaling:
@@ -255,15 +258,17 @@ class RankAllocationLoRaLinear(nn.Module):
                 dtype=self.lora_B.dtype,
             )
         )
-        self.A_probe = nn.Parameter(
-            torch.randn(
-                probe_rank,
-                self.in_features,
-                device=self.lora_A.device,
-                dtype=self.lora_A.dtype,
-            )
-            * sigma
+        probe = torch.randn(
+            probe_rank,
+            self.in_features,
+            device=self.lora_A.device,
+            dtype=torch.float32,
         )
+        Q, _ = torch.linalg.qr(self.lora_A.detach().float().T, mode="reduced")
+        probe = probe - (probe @ Q) @ Q.T
+        probe = probe / (probe.norm(dim=1, keepdim=True) + 1e-12)
+        probe = probe * sigma
+        self.A_probe = nn.Parameter(probe.to(dtype=self.lora_A.dtype))
         self.probe_enabled = True
 
     def get_probe_score(self):
@@ -279,6 +284,22 @@ class RankAllocationLoRaLinear(nn.Module):
         if hasattr(self, "A_probe"):
             del self.A_probe
         self.probe_enabled = False
+
+
+    def capture_probe_basis(self):
+        if not self.probe_enabled or not hasattr(self, "A_probe"):
+            return
+        self.last_A_probe = self.A_probe.detach().clone()
+
+    @torch.no_grad()
+    def rank_tail_energy(self, new_rank: int) -> float:
+        W = self.lora_B.detach().float().mm(self.lora_A.detach().float())
+        S = torch.linalg.svdvals(W)
+        if S.numel() == 0 or new_rank >= S.numel():
+            return 0.0
+        total = S.pow(2).sum().sqrt()
+        tail = S[new_rank:].pow(2).sum().sqrt()
+        return (tail / (total + 1e-12)).item()
 
     def snapshot_credit_state(self):
         if self.lora_A.grad is None or self.lora_B.grad is None:
@@ -317,7 +338,9 @@ class RankAllocationLoRaLinear(nn.Module):
 
     def compute_rank_score(self, eps=1e-12):
         scarcity = 1.0 / math.sqrt(float(self.rank) + eps)
-        self.score = self.eff_ema * self.probe_ema * scarcity
+        self.add_score = self.probe_ema + 0.5 * self.eff_ema + 0.1 * scarcity
+        self.remove_score = self.eff_ema + self.probe_ema
+        self.score = self.add_score
         return self.score
 
     @torch.no_grad()
@@ -342,10 +365,17 @@ class RankAllocationLoRaLinear(nn.Module):
 
         if target_rank > svd_rank:
             extra_rank = target_rank - svd_rank
-            extra_A = torch.empty(extra_rank, self.in_features, device=old_device, dtype=old_dtype)
-            extra_B = torch.empty(self.out_features, extra_rank, device=old_device, dtype=old_dtype)
-            extra_A.normal_(mean=0.0, std=self.rank_growth_init_std)
-            extra_B.normal_(mean=0.0, std=self.rank_growth_init_std)
+            extra_B = torch.zeros(self.out_features, extra_rank, device=old_device, dtype=old_dtype)
+            if self.last_A_probe is not None and self.last_A_probe.shape[1] == self.in_features:
+                probe_rows = min(extra_rank, self.last_A_probe.shape[0])
+                extra_A = self.last_A_probe[:probe_rows].to(device=old_device, dtype=old_dtype).clone()
+                if probe_rows < extra_rank:
+                    rem = torch.empty(extra_rank - probe_rows, self.in_features, device=old_device, dtype=old_dtype)
+                    rem.normal_(mean=0.0, std=self.rank_growth_init_std)
+                    extra_A = torch.cat([extra_A, rem], dim=0)
+            else:
+                extra_A = torch.empty(extra_rank, self.in_features, device=old_device, dtype=old_dtype)
+                extra_A.normal_(mean=0.0, std=self.rank_growth_init_std)
             new_A = torch.cat([new_A.to(device=old_device, dtype=old_dtype), extra_A], dim=0)
             new_B = torch.cat([new_B.to(device=old_device, dtype=old_dtype), extra_B], dim=1)
         else:
@@ -421,6 +451,7 @@ def update_probe_stats(
 
 def disable_rank_probes(modules: Iterable[RankAllocationLoRaLinear]):
     for module in modules:
+        module.capture_probe_basis()
         module.disable_probe()
 
 
@@ -440,6 +471,7 @@ def allocate_rank_budget(
     min_ratio=0.125,
     max_ratio=0.5,
     hysteresis=0.1,
+    tail_threshold=5e-3,
 ):
     old_ranks = {module: module.rank for module in modules}
     new_ranks = dict(old_ranks)
@@ -448,36 +480,34 @@ def allocate_rank_budget(
     if not modules or delta_rank <= 0 or top_k <= 0:
         return RankAllocationResult(old_ranks=old_ranks, new_ranks=new_ranks, moves=moves)
 
-    add_list = sorted(modules, key=lambda module: module.score, reverse=True)
-    remove_list = sorted(modules, key=lambda module: module.score)
-    add_idx = 0
-    remove_idx = 0
+    add_list = sorted(modules, key=lambda module: module.add_score, reverse=True)
+    remove_list = sorted(modules, key=lambda module: module.remove_score)
 
-    while len(moves) < top_k and add_idx < len(add_list) and remove_idx < len(remove_list):
-        add_module = add_list[add_idx]
-        remove_module = remove_list[remove_idx]
-
-        if add_module is remove_module:
-            add_idx += 1
-            continue
-
-        add_max = _rank_limit(add_module, max_ratio)
-        remove_min = _rank_limit(remove_module, min_ratio)
-
-        if new_ranks[add_module] + delta_rank > add_max:
-            add_idx += 1
-            continue
-        if new_ranks[remove_module] - delta_rank < remove_min:
-            remove_idx += 1
-            continue
-        if add_module.score <= remove_module.score * (1.0 + hysteresis):
+    for add_module in add_list:
+        if len(moves) >= top_k:
             break
+        add_max = _rank_limit(add_module, max_ratio)
+        if new_ranks[add_module] + delta_rank > add_max:
+            continue
 
-        new_ranks[add_module] += delta_rank
-        new_ranks[remove_module] -= delta_rank
-        moves.append(RankMove(remove_module, add_module, delta_rank))
-        add_idx += 1
-        remove_idx += 1
+        for remove_module in remove_list:
+            if add_module is remove_module:
+                continue
+            if any(move.remove_module is remove_module for move in moves):
+                continue
+
+            remove_min = _rank_limit(remove_module, min_ratio)
+            if new_ranks[remove_module] - delta_rank < remove_min:
+                continue
+            if add_module.add_score <= remove_module.remove_score * (1.0 + hysteresis):
+                continue
+            if remove_module.rank_tail_energy(new_ranks[remove_module] - delta_rank) > tail_threshold:
+                continue
+
+            new_ranks[add_module] += delta_rank
+            new_ranks[remove_module] -= delta_rank
+            moves.append(RankMove(remove_module, add_module, delta_rank))
+            break
 
     return RankAllocationResult(old_ranks=old_ranks, new_ranks=new_ranks, moves=moves)
 
