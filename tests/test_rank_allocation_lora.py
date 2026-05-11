@@ -48,6 +48,11 @@ class RankAllocationLoRaSmokeTest(unittest.TestCase):
         self.assertIn("out = F.linear(x, W, None if self.bias is None else self.bias)", source)
         self.assertNotIn("hidden = F.linear(self.lora_dropout(x), self.lora_A * self._post_lora_scale())", source)
 
+    def test_rank_growth_init_std_must_be_positive(self):
+        source = MODULE_PATH.read_text()
+
+        self.assertIn("rank_growth_init_std must be positive", source)
+
     @unittest.skipIf(torch is None, "torch is not installed in this Python environment")
     def test_probe_branch_is_zero_output_initially(self):
         module = load_rank_allocation_module()
@@ -76,6 +81,26 @@ class RankAllocationLoRaSmokeTest(unittest.TestCase):
         self.assertEqual(tuple(layer.lora_A.shape), (1, 4))
         self.assertEqual(tuple(layer.lora_B.shape), (3, 1))
         self.assertEqual(layer.rank, 1)
+
+    @unittest.skipIf(torch is None, "torch is not installed in this Python environment")
+    def test_rank_growth_adds_nonzero_random_extra_factors(self):
+        module = load_rank_allocation_module()
+        torch.manual_seed(0)
+        layer = module.RankAllocationLoRaLinear(
+            5,
+            4,
+            2,
+            lora_alpha=2,
+            bias=False,
+            rank_growth_init_std=1e-4,
+        )
+
+        layer.refactorize_with_rank(4)
+
+        self.assertEqual(tuple(layer.lora_A.shape), (4, 5))
+        self.assertEqual(tuple(layer.lora_B.shape), (4, 4))
+        self.assertGreater(layer.lora_A[2:].detach().float().abs().sum().item(), 0.0)
+        self.assertGreater(layer.lora_B[:, 2:].detach().float().abs().sum().item(), 0.0)
 
     @unittest.skipIf(torch is None, "torch is not installed in this Python environment")
     def test_allocator_moves_rank_from_low_score_to_high_score_with_budget_fixed(self):

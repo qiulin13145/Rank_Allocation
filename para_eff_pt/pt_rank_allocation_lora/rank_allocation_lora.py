@@ -19,6 +19,7 @@ class RankAllocationLoRaConfig:
     lora_dropout: float
     target_modules: List[str]
     trainable_scaling: bool = False
+    rank_growth_init_std: float = 1e-4
 
 
 @dataclass
@@ -57,6 +58,7 @@ class RankAllocationLoRaModel(torch.nn.Module):
         lora_alpha=32,
         lora_dropout=0.1,
         trainable_scaling=False,
+        rank_growth_init_std=1e-4,
     ):
         if r <= 0:
             raise ValueError("r must be positive.")
@@ -68,6 +70,7 @@ class RankAllocationLoRaModel(torch.nn.Module):
         self.lora_dropout = lora_dropout
         self.target_modules = target_modules
         self.trainable_scaling = trainable_scaling
+        self.rank_growth_init_std = rank_growth_init_std
         self.parameterized_modules = []
 
         target_modules_list = target_modules
@@ -80,6 +83,7 @@ class RankAllocationLoRaModel(torch.nn.Module):
             lora_dropout=lora_dropout,
             target_modules=list(target_modules_list),
             trainable_scaling=trainable_scaling,
+            rank_growth_init_std=rank_growth_init_std,
         )
 
         self.forward = self.wrapped_model.forward
@@ -104,6 +108,7 @@ class RankAllocationLoRaModel(torch.nn.Module):
                 device=module.weight.device,
                 dtype=module.weight.dtype,
                 module_name=module_name,
+                rank_growth_init_std=rank_growth_init_std,
             )
 
             parent = self._get_parent(module_name)
@@ -153,10 +158,13 @@ class RankAllocationLoRaLinear(nn.Module):
         device=None,
         dtype=None,
         module_name: Optional[str] = None,
+        rank_growth_init_std: float = 1e-4,
     ):
         super().__init__()
         if r <= 0:
             raise ValueError("r must be positive.")
+        if rank_growth_init_std <= 0:
+            raise ValueError("rank_growth_init_std must be positive.")
 
         self.in_features = in_features
         self.out_features = out_features
@@ -170,6 +178,7 @@ class RankAllocationLoRaLinear(nn.Module):
         self.device = device
         self.dtype = dtype
         self.module_name = module_name or ""
+        self.rank_growth_init_std = rank_growth_init_std
 
         if bias:
             if bias_data is None:
@@ -316,21 +325,35 @@ class RankAllocationLoRaLinear(nn.Module):
         if new_rank <= 0:
             raise ValueError("new_rank must be positive.")
 
+        old_rank = self.rank
         old_dtype = self.lora_A.dtype
         old_device = self.lora_A.device
         W = self.lora_B.detach().float().mm(self.lora_A.detach().float())
         U, S, Vh = torch.linalg.svd(W, full_matrices=False)
-        rank = min(new_rank, U.shape[1], Vh.shape[0])
-        U_r = U[:, :rank]
-        S_r = S[:rank]
-        Vh_r = Vh[:rank, :]
+        target_rank = min(new_rank, U.shape[1], Vh.shape[0])
+        svd_rank = min(target_rank, old_rank) if new_rank > old_rank else target_rank
+        U_r = U[:, :svd_rank]
+        S_r = S[:svd_rank]
+        Vh_r = Vh[:svd_rank, :]
         sqrt_S = torch.sqrt(S_r.clamp_min(0.0))
 
         new_B = U_r * sqrt_S.unsqueeze(0)
         new_A = sqrt_S.unsqueeze(1) * Vh_r
 
-        self.rank = rank
-        self.r = rank
+        if target_rank > svd_rank:
+            extra_rank = target_rank - svd_rank
+            extra_A = torch.empty(extra_rank, self.in_features, device=old_device, dtype=old_dtype)
+            extra_B = torch.empty(self.out_features, extra_rank, device=old_device, dtype=old_dtype)
+            extra_A.normal_(mean=0.0, std=self.rank_growth_init_std)
+            extra_B.normal_(mean=0.0, std=self.rank_growth_init_std)
+            new_A = torch.cat([new_A.to(device=old_device, dtype=old_dtype), extra_A], dim=0)
+            new_B = torch.cat([new_B.to(device=old_device, dtype=old_dtype), extra_B], dim=1)
+        else:
+            new_A = new_A.to(device=old_device, dtype=old_dtype)
+            new_B = new_B.to(device=old_device, dtype=old_dtype)
+
+        self.rank = target_rank
+        self.r = target_rank
         self.lora_A = nn.Parameter(new_A.to(device=old_device, dtype=old_dtype))
         self.lora_B = nn.Parameter(new_B.to(device=old_device, dtype=old_dtype))
         if not self.trainable_scaling:

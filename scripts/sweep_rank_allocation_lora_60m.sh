@@ -46,6 +46,7 @@ BASE_ARGS=(
     --rank_allocation_credit_beta 0.95
     --rank_allocation_probe_beta 0.9
     --rank_allocation_start_step 1100
+    --rank_allocation_extra_init_std 1e-4
     --rank_allocation_report_dir log/rank_allocation_reports
     --dataset_path /data/datasets/c4/en
     --seed 42

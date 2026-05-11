@@ -128,6 +128,7 @@ def build_model(model, args):
             lora_dropout=args.lora_dropout,
             target_modules=args.target_modules,
             trainable_scaling=args.train_scaling,
+            rank_growth_init_std=args.rank_allocation_extra_init_std,
         )
     elif args.peft_model.lower() == "golore":
         model = GoloreReLoRaModel(
