@@ -1012,7 +1012,11 @@ def main(args):
                 underlying_model.zero_grad(set_to_none=True)
 
                 compute_rank_scores(rank_allocation_modules)
-                if update_step >= args.rank_allocation_start_step:
+                should_allocate = (
+                    update_step >= args.rank_allocation_start_step
+                    and (update_step - args.rank_allocation_start_step) % max(args.rank_allocation_interval, 1) == 0
+                )
+                if should_allocate:
                     allocation_result = allocate_rank_budget(
                         rank_allocation_modules,
                         delta_rank=args.rank_allocation_delta,
@@ -1020,6 +1024,7 @@ def main(args):
                         min_ratio=args.rank_allocation_min_ratio,
                         max_ratio=args.rank_allocation_max_ratio,
                         hysteresis=args.rank_allocation_hysteresis,
+                        tail_threshold=args.rank_allocation_tail_threshold,
                     )
                 else:
                     allocation_result = allocate_rank_budget(

@@ -254,6 +254,8 @@ def parse_args(args):
     parser.add_argument("--rank_allocation_credit_beta", type=float, default=0.95)
     parser.add_argument("--rank_allocation_probe_beta", type=float, default=0.9)
     parser.add_argument("--rank_allocation_start_step", type=int, default=0)
+    parser.add_argument("--rank_allocation_interval", type=int, default=2000)
+    parser.add_argument("--rank_allocation_tail_threshold", type=float, default=5e-3)
     parser.add_argument("--rank_allocation_extra_init_std", type=float, default=1e-4)
     parser.add_argument("--rank_allocation_report_dir", type=str, default=None)
     parser.add_argument("--disable_rank_allocation_report", action="store_true")
