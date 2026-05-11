@@ -367,8 +367,7 @@ class RankAllocationLoRaLinear(nn.Module):
 
         if target_rank > svd_rank:
             extra_rank = target_rank - svd_rank
-            extra_B = torch.empty(self.out_features, extra_rank, device=old_device, dtype=old_dtype)
-            extra_B.normal_(mean=0.0, std=self.rank_growth_init_std)
+            extra_B = torch.zeros(self.out_features, extra_rank, device=old_device, dtype=old_dtype)
             if self.last_A_probe is not None and self.last_A_probe.shape[1] == self.in_features:
                 probe_rows = min(extra_rank, self.last_A_probe.shape[0])
                 extra_A = self.last_A_probe[:probe_rows].to(device=old_device, dtype=old_dtype).clone()
