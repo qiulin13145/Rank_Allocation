@@ -34,6 +34,8 @@ class RankAllocationResult:
     old_ranks: Dict["RankAllocationLoRaLinear", int]
     new_ranks: Dict["RankAllocationLoRaLinear", int]
     moves: List[RankMove]
+    reject_counts: Optional[Dict[str, int]] = None
+    debug_stats: Optional[Dict[str, float]] = None
 
     @property
     def changed_modules(self):
@@ -365,7 +367,8 @@ class RankAllocationLoRaLinear(nn.Module):
 
         if target_rank > svd_rank:
             extra_rank = target_rank - svd_rank
-            extra_B = torch.zeros(self.out_features, extra_rank, device=old_device, dtype=old_dtype)
+            extra_B = torch.empty(self.out_features, extra_rank, device=old_device, dtype=old_dtype)
+            extra_B.normal_(mean=0.0, std=self.rank_growth_init_std)
             if self.last_A_probe is not None and self.last_A_probe.shape[1] == self.in_features:
                 probe_rows = min(extra_rank, self.last_A_probe.shape[0])
                 extra_A = self.last_A_probe[:probe_rows].to(device=old_device, dtype=old_dtype).clone()
@@ -476,32 +479,67 @@ def allocate_rank_budget(
     old_ranks = {module: module.rank for module in modules}
     new_ranks = dict(old_ranks)
     moves = []
+    reject_counts = {
+        "add_max": 0,
+        "same_module": 0,
+        "duplicate_remove": 0,
+        "remove_min": 0,
+        "hysteresis": 0,
+        "tail_energy": 0,
+    }
+    best_add_score = max((module.add_score for module in modules), default=0.0)
+    best_remove_score = min((module.remove_score for module in modules), default=0.0)
+    debug_stats = {
+        "best_add_score": best_add_score,
+        "best_remove_score": best_remove_score,
+        "best_gap": best_add_score - best_remove_score,
+        "tail_energy_min": 0.0,
+        "tail_energy_median": 0.0,
+        "tail_energy_max": 0.0,
+    }
 
     if not modules or delta_rank <= 0 or top_k <= 0:
-        return RankAllocationResult(old_ranks=old_ranks, new_ranks=new_ranks, moves=moves)
+        return RankAllocationResult(
+            old_ranks=old_ranks,
+            new_ranks=new_ranks,
+            moves=moves,
+            reject_counts=reject_counts,
+            debug_stats=debug_stats,
+        )
 
     add_list = sorted(modules, key=lambda module: module.add_score, reverse=True)
     remove_list = sorted(modules, key=lambda module: module.remove_score)
+    tail_energies = []
 
     for add_module in add_list:
         if len(moves) >= top_k:
             break
         add_max = _rank_limit(add_module, max_ratio)
         if new_ranks[add_module] + delta_rank > add_max:
+            reject_counts["add_max"] += 1
             continue
 
         for remove_module in remove_list:
             if add_module is remove_module:
+                reject_counts["same_module"] += 1
                 continue
             if any(move.remove_module is remove_module for move in moves):
+                reject_counts["duplicate_remove"] += 1
                 continue
 
             remove_min = _rank_limit(remove_module, min_ratio)
             if new_ranks[remove_module] - delta_rank < remove_min:
+                reject_counts["remove_min"] += 1
                 continue
-            if add_module.add_score <= remove_module.remove_score * (1.0 + hysteresis):
+            gap = add_module.add_score - remove_module.remove_score
+            debug_stats["best_gap"] = max(debug_stats["best_gap"], gap)
+            if gap <= hysteresis:
+                reject_counts["hysteresis"] += 1
                 continue
-            if remove_module.rank_tail_energy(new_ranks[remove_module] - delta_rank) > tail_threshold:
+            tail_energy = remove_module.rank_tail_energy(new_ranks[remove_module] - delta_rank)
+            tail_energies.append(tail_energy)
+            if tail_energy > tail_threshold:
+                reject_counts["tail_energy"] += 1
                 continue
 
             new_ranks[add_module] += delta_rank
@@ -509,7 +547,18 @@ def allocate_rank_budget(
             moves.append(RankMove(remove_module, add_module, delta_rank))
             break
 
-    return RankAllocationResult(old_ranks=old_ranks, new_ranks=new_ranks, moves=moves)
+    if tail_energies:
+        debug_stats["tail_energy_min"] = min(tail_energies)
+        debug_stats["tail_energy_median"] = _median(tail_energies)
+        debug_stats["tail_energy_max"] = max(tail_energies)
+
+    return RankAllocationResult(
+        old_ranks=old_ranks,
+        new_ranks=new_ranks,
+        moves=moves,
+        reject_counts=reject_counts,
+        debug_stats=debug_stats,
+    )
 
 
 @torch.no_grad()
@@ -560,6 +609,12 @@ def summarize_rank_allocation(
         "rank_allocation/energy_median": _median(energies),
         "rank_allocation/energy_max": max(energies) if energies else 0.0,
     }
+    reject_counts = result.reject_counts or {}
+    debug_stats = result.debug_stats or {}
+    for reason, count in reject_counts.items():
+        metrics[f"rank_allocation/reject_{reason}"] = count
+    for name, value in debug_stats.items():
+        metrics[f"rank_allocation/{name}"] = value
 
     by_kind = {}
     for module in modules:
@@ -631,6 +686,22 @@ def summarize_rank_allocation(
             for kind, kind_ranks in sorted(by_kind.items())
         )
         lines.append(f"[rank_allocation_lora] mean rank by module type: {kind_summary}")
+
+    if reject_counts:
+        reject_summary = ", ".join(
+            f"{reason}={count}" for reason, count in sorted(reject_counts.items())
+        )
+        lines.append(
+            "[rank_allocation_lora] allocation rejects: "
+            f"{reject_summary}; "
+            f"best_add={debug_stats.get('best_add_score', 0.0):.4e} "
+            f"best_remove={debug_stats.get('best_remove_score', 0.0):.4e} "
+            f"best_gap={debug_stats.get('best_gap', 0.0):.4e} "
+            f"tail(min/median/max)="
+            f"{debug_stats.get('tail_energy_min', 0.0):.4e}/"
+            f"{debug_stats.get('tail_energy_median', 0.0):.4e}/"
+            f"{debug_stats.get('tail_energy_max', 0.0):.4e}"
+        )
 
     for row in changed_rows[:top_n]:
         lines.append(

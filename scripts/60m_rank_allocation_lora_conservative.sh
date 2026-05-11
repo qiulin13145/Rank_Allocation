@@ -35,7 +35,7 @@ torchrun --standalone --nproc_per_node 8 torchrun_main_DDP.py \
     --rank_allocation_top_k 2 \
     --rank_allocation_min_ratio 0.1875 \
     --rank_allocation_max_ratio 0.3125 \
-    --rank_allocation_hysteresis 0.5 \
+    --rank_allocation_hysteresis 0.0 \
     --rank_allocation_probe_rank 8 \
     --rank_allocation_probe_sigma 1e-3 \
     --rank_allocation_credit_sample_interval 20 \

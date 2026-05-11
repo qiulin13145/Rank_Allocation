@@ -53,6 +53,21 @@ class RankAllocationLoRaSmokeTest(unittest.TestCase):
 
         self.assertIn("rank_growth_init_std must be positive", source)
 
+    def test_allocator_uses_gap_hysteresis_and_logs_reject_counts(self):
+        source = MODULE_PATH.read_text()
+
+        self.assertIn("gap = add_module.add_score - remove_module.remove_score", source)
+        self.assertIn("if gap <= hysteresis:", source)
+        self.assertNotIn("remove_module.remove_score * (1.0 + hysteresis)", source)
+        self.assertIn("allocation rejects", source)
+        self.assertIn("reject_counts", source)
+
+    def test_rank_growth_extra_b_is_not_zero_initialized(self):
+        source = MODULE_PATH.read_text()
+
+        self.assertIn("extra_B.normal_(mean=0.0, std=self.rank_growth_init_std)", source)
+        self.assertNotIn("extra_B = torch.zeros", source)
+
     @unittest.skipIf(torch is None, "torch is not installed in this Python environment")
     def test_probe_branch_is_zero_output_initially(self):
         module = load_rank_allocation_module()
@@ -109,8 +124,8 @@ class RankAllocationLoRaSmokeTest(unittest.TestCase):
         high = module.RankAllocationLoRaLinear(8, 8, 4, bias=False)
         low.module_name = "mlp.down_proj"
         high.module_name = "attn.q_proj"
-        low.score = 0.1
-        high.score = 10.0
+        low.remove_score = 0.1
+        high.add_score = 10.0
 
         result = module.allocate_rank_budget(
             [low, high],
