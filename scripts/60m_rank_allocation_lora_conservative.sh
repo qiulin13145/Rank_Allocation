@@ -38,12 +38,12 @@ torchrun --standalone --nproc_per_node 8 torchrun_main_DDP.py \
     --rank_allocation_hysteresis 0.0 \
     --rank_allocation_probe_rank 8 \
     --rank_allocation_probe_sigma 1e-3 \
-    --rank_allocation_credit_sample_interval 20 \
+    --rank_allocation_credit_sample_interval 5 \
     --rank_allocation_credit_beta 0.95 \
     --rank_allocation_probe_beta 0.9 \
-    --rank_allocation_start_step 4000 \
-    --rank_allocation_interval 2000 \
-    --rank_allocation_tail_threshold 5e-3 \
+    --rank_allocation_start_step 2000 \
+    --rank_allocation_interval 500 \
+    --rank_allocation_tail_threshold 0.1 \
     --rank_allocation_extra_init_std 1e-4 \
     --rank_allocation_report_dir log/rank_allocation_reports \
     --dataset_path /data/datasets/c4/en \
