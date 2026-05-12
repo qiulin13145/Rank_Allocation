@@ -177,6 +177,39 @@ class RankAllocationLoRaSmokeTest(unittest.TestCase):
         self.assertEqual(len(result.moves), 1)
 
     @unittest.skipIf(torch is None, "torch is not installed in this Python environment")
+    def test_allocator_does_not_reuse_module_across_add_and_remove_roles(self):
+        module = load_rank_allocation_module()
+        add_only = module.RankAllocationLoRaLinear(8, 8, 4, bias=False)
+        both = module.RankAllocationLoRaLinear(8, 8, 4, bias=False)
+        remove_only = module.RankAllocationLoRaLinear(8, 8, 4, bias=False)
+        add_only.module_name = "attn.q_proj"
+        both.module_name = "mlp.up_proj"
+        remove_only.module_name = "mlp.down_proj"
+
+        add_only.add_score = 100.0
+        both.add_score = 90.0
+        remove_only.add_score = 1.0
+        both.remove_score = 0.0
+        remove_only.remove_score = 1.0
+        add_only.remove_score = 10.0
+
+        result = module.allocate_rank_budget(
+            [add_only, both, remove_only],
+            delta_rank=2,
+            top_k=2,
+            min_ratio=0.25,
+            max_ratio=0.75,
+            tail_threshold=1.0,
+        )
+
+        changed_modules = set(result.changed_modules)
+        self.assertEqual(result.new_ranks[add_only], 6)
+        self.assertEqual(result.new_ranks[both], 2)
+        self.assertEqual(result.new_ranks[remove_only], 4)
+        self.assertEqual(len(result.moves), 1)
+        self.assertNotIn(remove_only, changed_modules)
+
+    @unittest.skipIf(torch is None, "torch is not installed in this Python environment")
     def test_model_replaces_target_linears(self):
         module = load_rank_allocation_module()
 

@@ -480,8 +480,8 @@ def allocate_rank_budget(
     moves = []
     reject_counts = {
         "add_max": 0,
+        "already_used": 0,
         "same_module": 0,
-        "duplicate_remove": 0,
         "remove_min": 0,
         "tail_energy": 0,
     }
@@ -542,31 +542,30 @@ def allocate_rank_budget(
     debug_stats["add_candidates"] = len(add_candidates)
     debug_stats["remove_tail_safe"] = len(remove_candidates)
 
-    used_add = set()
-    used_remove = set()
+    used_modules = set()
     i = 0
     j = 0
     while len(moves) < top_k and i < len(add_candidates) and j < len(remove_candidates):
         add_module = add_candidates[i]
         remove_module = remove_candidates[j]
 
-        if add_module is remove_module:
-            reject_counts["same_module"] += 1
-            j += 1
-            continue
-        if add_module in used_add:
-            reject_counts["duplicate_remove"] += 1
+        if add_module in used_modules:
+            reject_counts["already_used"] += 1
             i += 1
             continue
-        if remove_module in used_remove:
-            reject_counts["duplicate_remove"] += 1
+        if remove_module in used_modules:
+            reject_counts["already_used"] += 1
+            j += 1
+            continue
+        if add_module is remove_module:
+            reject_counts["same_module"] += 1
             j += 1
             continue
 
         new_ranks[add_module] += delta_rank
         new_ranks[remove_module] -= delta_rank
-        used_add.add(add_module)
-        used_remove.add(remove_module)
+        used_modules.add(add_module)
+        used_modules.add(remove_module)
         moves.append(RankMove(remove_module, add_module, delta_rank))
         i += 1
         j += 1
