@@ -53,13 +53,15 @@ class RankAllocationLoRaSmokeTest(unittest.TestCase):
 
         self.assertIn("rank_growth_init_std must be positive", source)
 
-    def test_allocator_uses_gap_hysteresis_and_logs_reject_counts(self):
+    def test_allocator_uses_candidate_selection_without_score_gap(self):
         source = MODULE_PATH.read_text()
 
-        self.assertIn("gap = add_module.add_score - remove_module.remove_score", source)
-        self.assertIn("if gap <= hysteresis:", source)
+        self.assertIn("add_candidates = sorted", source)
+        self.assertIn("remove_candidates_with_tail", source)
+        self.assertNotIn("gap = add_module.add_score - remove_module.remove_score", source)
+        self.assertNotIn("if gap <= hysteresis:", source)
         self.assertNotIn("remove_module.remove_score * (1.0 + hysteresis)", source)
-        self.assertIn("allocation rejects", source)
+        self.assertIn("allocation selection", source)
         self.assertIn("reject_counts", source)
 
     def test_training_loop_supports_allocation_once_flag(self):
@@ -148,6 +150,30 @@ class RankAllocationLoRaSmokeTest(unittest.TestCase):
         self.assertEqual(result.new_ranks[low], 2)
         self.assertEqual(result.new_ranks[high], 6)
         self.assertEqual(sum(result.old_ranks.values()), sum(result.new_ranks.values()))
+        self.assertEqual(len(result.moves), 1)
+
+    @unittest.skipIf(torch is None, "torch is not installed in this Python environment")
+    def test_allocator_does_not_compare_add_and_remove_score_scales(self):
+        module = load_rank_allocation_module()
+        remove = module.RankAllocationLoRaLinear(8, 8, 4, bias=False)
+        add = module.RankAllocationLoRaLinear(8, 8, 4, bias=False)
+        remove.module_name = "mlp.down_proj"
+        add.module_name = "attn.q_proj"
+        remove.remove_score = 10.0
+        add.add_score = 1.0
+
+        result = module.allocate_rank_budget(
+            [remove, add],
+            delta_rank=2,
+            top_k=1,
+            min_ratio=0.25,
+            max_ratio=0.75,
+            hysteresis=100.0,
+            tail_threshold=1.0,
+        )
+
+        self.assertEqual(result.new_ranks[remove], 2)
+        self.assertEqual(result.new_ranks[add], 6)
         self.assertEqual(len(result.moves), 1)
 
     @unittest.skipIf(torch is None, "torch is not installed in this Python environment")

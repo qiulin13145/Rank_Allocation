@@ -483,15 +483,17 @@ def allocate_rank_budget(
         "same_module": 0,
         "duplicate_remove": 0,
         "remove_min": 0,
-        "hysteresis": 0,
         "tail_energy": 0,
     }
     best_add_score = max((module.add_score for module in modules), default=0.0)
     best_remove_score = min((module.remove_score for module in modules), default=0.0)
     debug_stats = {
+        "delta_rank": delta_rank,
+        "top_k": top_k,
         "best_add_score": best_add_score,
         "best_remove_score": best_remove_score,
-        "best_gap": best_add_score - best_remove_score,
+        "add_candidates": 0,
+        "remove_tail_safe": 0,
         "tail_energy_min": 0.0,
         "tail_energy_median": 0.0,
         "tail_energy_max": 0.0,
@@ -506,45 +508,68 @@ def allocate_rank_budget(
             debug_stats=debug_stats,
         )
 
-    add_list = sorted(modules, key=lambda module: module.add_score, reverse=True)
-    remove_list = sorted(modules, key=lambda module: module.remove_score)
-    tail_energies = []
-
-    for add_module in add_list:
-        if len(moves) >= top_k:
-            break
-        add_max = _rank_limit(add_module, max_ratio)
-        if new_ranks[add_module] + delta_rank > add_max:
+    add_candidates = []
+    for module in modules:
+        add_max = _rank_limit(module, max_ratio)
+        if new_ranks[module] + delta_rank <= add_max:
+            add_candidates.append(module)
+        else:
             reject_counts["add_max"] += 1
+    add_candidates = sorted(add_candidates, key=lambda module: module.add_score, reverse=True)
+
+    remove_candidates_with_tail = []
+    tail_energies = []
+    for module in modules:
+        remove_min = _rank_limit(module, min_ratio)
+        if new_ranks[module] - delta_rank < remove_min:
+            reject_counts["remove_min"] += 1
             continue
 
-        for remove_module in remove_list:
-            if add_module is remove_module:
-                reject_counts["same_module"] += 1
-                continue
-            if any(move.remove_module is remove_module for move in moves):
-                reject_counts["duplicate_remove"] += 1
-                continue
+        tail_energy = module.rank_tail_energy(new_ranks[module] - delta_rank)
+        tail_energies.append(tail_energy)
+        if tail_energy <= tail_threshold:
+            remove_candidates_with_tail.append((module, tail_energy))
+        else:
+            reject_counts["tail_energy"] += 1
 
-            remove_min = _rank_limit(remove_module, min_ratio)
-            if new_ranks[remove_module] - delta_rank < remove_min:
-                reject_counts["remove_min"] += 1
-                continue
-            gap = add_module.add_score - remove_module.remove_score
-            debug_stats["best_gap"] = max(debug_stats["best_gap"], gap)
-            if gap <= hysteresis:
-                reject_counts["hysteresis"] += 1
-                continue
-            tail_energy = remove_module.rank_tail_energy(new_ranks[remove_module] - delta_rank)
-            tail_energies.append(tail_energy)
-            if tail_energy > tail_threshold:
-                reject_counts["tail_energy"] += 1
-                continue
+    remove_candidates = [
+        module
+        for module, _ in sorted(
+            remove_candidates_with_tail,
+            key=lambda item: (item[0].remove_score, item[1]),
+        )
+    ]
+    debug_stats["add_candidates"] = len(add_candidates)
+    debug_stats["remove_tail_safe"] = len(remove_candidates)
 
-            new_ranks[add_module] += delta_rank
-            new_ranks[remove_module] -= delta_rank
-            moves.append(RankMove(remove_module, add_module, delta_rank))
-            break
+    used_add = set()
+    used_remove = set()
+    i = 0
+    j = 0
+    while len(moves) < top_k and i < len(add_candidates) and j < len(remove_candidates):
+        add_module = add_candidates[i]
+        remove_module = remove_candidates[j]
+
+        if add_module is remove_module:
+            reject_counts["same_module"] += 1
+            j += 1
+            continue
+        if add_module in used_add:
+            reject_counts["duplicate_remove"] += 1
+            i += 1
+            continue
+        if remove_module in used_remove:
+            reject_counts["duplicate_remove"] += 1
+            j += 1
+            continue
+
+        new_ranks[add_module] += delta_rank
+        new_ranks[remove_module] -= delta_rank
+        used_add.add(add_module)
+        used_remove.add(remove_module)
+        moves.append(RankMove(remove_module, add_module, delta_rank))
+        i += 1
+        j += 1
 
     if tail_energies:
         debug_stats["tail_energy_min"] = min(tail_energies)
@@ -691,11 +716,18 @@ def summarize_rank_allocation(
             f"{reason}={count}" for reason, count in sorted(reject_counts.items())
         )
         lines.append(
-            "[rank_allocation_lora] allocation rejects: "
-            f"{reject_summary}; "
+            "[rank_allocation_lora] allocation selection: "
+            f"delta={int(debug_stats.get('delta_rank', 0))} "
+            f"top_k={int(debug_stats.get('top_k', 0))} "
+            f"add_candidates={int(debug_stats.get('add_candidates', 0))} "
+            f"remove_tail_safe={int(debug_stats.get('remove_tail_safe', 0))} "
+            f"moves={len(result.moves)} "
+            f"rank_moved={result.rank_moved} "
+            f"changed={len(result.changed_modules)} "
+            f"total_rank={sum(ranks)}; "
+            f"rejects: {reject_summary}; "
             f"best_add={debug_stats.get('best_add_score', 0.0):.4e} "
             f"best_remove={debug_stats.get('best_remove_score', 0.0):.4e} "
-            f"best_gap={debug_stats.get('best_gap', 0.0):.4e} "
             f"tail(min/median/max)="
             f"{debug_stats.get('tail_energy_min', 0.0):.4e}/"
             f"{debug_stats.get('tail_energy_median', 0.0):.4e}/"
