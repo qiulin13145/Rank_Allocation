@@ -708,6 +708,7 @@ def main(args):
     is_rank_allocation_lora = args.peft_model.lower() == "rank_allocation_lora"
     rank_allocation_modules = []
     rank_allocation_report_events = []
+    rank_allocation_once_consumed = False
     if is_rank_allocation_lora:
         rank_allocation_modules = list_rank_allocation_lora_modules(model)
         if global_rank == 0:
@@ -1015,6 +1016,7 @@ def main(args):
                 should_allocate = (
                     update_step >= args.rank_allocation_start_step
                     and (update_step - args.rank_allocation_start_step) % max(args.rank_allocation_interval, 1) == 0
+                    and not (args.rank_allocation_once and rank_allocation_once_consumed)
                 )
                 if should_allocate:
                     allocation_result = allocate_rank_budget(
@@ -1026,6 +1028,7 @@ def main(args):
                         hysteresis=args.rank_allocation_hysteresis,
                         tail_threshold=args.rank_allocation_tail_threshold,
                     )
+                    rank_allocation_once_consumed = True
                 else:
                     allocation_result = allocate_rank_budget(
                         rank_allocation_modules,

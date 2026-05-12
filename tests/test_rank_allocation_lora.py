@@ -62,6 +62,15 @@ class RankAllocationLoRaSmokeTest(unittest.TestCase):
         self.assertIn("allocation rejects", source)
         self.assertIn("reject_counts", source)
 
+    def test_training_loop_supports_allocation_once_flag(self):
+        root = pathlib.Path(__file__).resolve().parents[1]
+        args_source = (root / "para_eff_pt" / "utils" / "args.py").read_text()
+        ddp_source = (root / "torchrun_main_DDP.py").read_text()
+
+        self.assertIn("--rank_allocation_once", args_source)
+        self.assertIn("rank_allocation_once_consumed", ddp_source)
+        self.assertIn("args.rank_allocation_once and rank_allocation_once_consumed", ddp_source)
+
     def test_rank_growth_extra_b_is_zero_initialized(self):
         source = MODULE_PATH.read_text()
 
