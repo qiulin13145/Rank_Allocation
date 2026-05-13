@@ -15,7 +15,7 @@ python -m wandb login wandb_v1_LOVyXc0A68B3NHy1PB7NHX7CNEB_R4venp9Yjx4BpA6o6ej3s
 export WANDB_PROJECT="rank_allocation_lora"
 
 torchrun --standalone --nproc_per_node 8 torchrun_main_DDP.py \
-    --model_name once_32_32 \
+    --model_name once_16_64 \
     --model_config configs/llama_60m.json \
     --lr 0.003 \
     --peft_model rank_allocation_lora \
@@ -33,8 +33,8 @@ torchrun --standalone --nproc_per_node 8 torchrun_main_DDP.py \
     --cycle_length 500 \
     --scheduler cosine_quick_recovery \
     --restart_warmup_steps 10 \
-    --rank_allocation_delta 32 \
-    --rank_allocation_top_k 32 \
+    --rank_allocation_delta 16 \
+    --rank_allocation_top_k 64 \
     --rank_allocation_min_ratio 0.1 \
     --rank_allocation_max_ratio 0.5 \
     --rank_allocation_hysteresis 0.0 \
